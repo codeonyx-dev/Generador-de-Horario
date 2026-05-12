@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generador de Horarios UPTZ</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script type="text/babel">
+const { useState, useRef, useMemo } = React;
+
+const SCHED_DAYS = ['lu', 'ma', 'mi', 'ju', 'vi'];
+
+function defaultSpan() {
+    return { lu: 1, ma: 1, mi: 1, ju: 1, vi: 1 };
+}
+
+function ensureSpanRow(row) {
+    return { ...row, span: { ...defaultSpan(), ...(row.span || {}) } };
+}
+
+function coveredFromAbove(rows, rowIdx, day) {
+    const n = rows.length;
+    for (let i = 0; i < rowIdx; i++) {
+        const sp = ensureSpanRow(rows[i]).span;
+        let s = parseInt(sp[day], 10);
+        if (Number.isNaN(s) || s < 1) s = 1;
+        s = Math.min(s, n - i);
+        if (i + s > rowIdx) return true;
+    }
+    return false;
+}
+
+function effSpan(rows, rowIdx, day) {
+    const sp = ensureSpanRow(rows[rowIdx]).span;
+    let s = parseInt(sp[day], 10);
+    if (Number.isNaN(s) || s < 1) s = 1;
+    return Math.min(s, rows.length - rowIdx);
+}
+
+const DEFAULT_SCHED_COLOR = '#004a99';
+
+function hexToRgb(hex) {
+    const h = String(hex).replace(/^#/, '').trim();
+    const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+    if (!/^[0-9a-f]{6}$/i.test(full)) return null;
+    return {
+        r: parseInt(full.slice(0, 2), 16),
+        g: parseInt(full.slice(2, 4), 16),
+        b: parseInt(full.slice(4, 6), 16),
+    };
+}
+
+function rgbToHex({ r, g, b }) {
+    const c = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+    return `#${c(r)}${c(g)}${c(b)}`;
+}
+
+function mixHex(a, b, t) {
+    const A = hexToRgb(a);
+    const B = hexToRgb(b);
+    if (!A || !B) return a;
+    return rgbToHex({
+        r: A.r + (B.r - A.r) * t,
+        g: A.g + (B.g - A.g) * t,
+        b: A.b + (B.b - A.b) * t,
+    });
+}
+
+function normalizeHexInput(s) {
+    if (!s || typeof s !== 'string') return null;
+    let x = s.trim();
+    if (!x.startsWith('#')) x = `#${x}`;
+    if (/^#[0-9a-f]{6}$/i.test(x)) return x.toLowerCase();
+    if (/^#[0-9a-f]{3}$/i.test(x)) {
+        const h = x.slice(1);
+        return `#${h[0]}${h[0]}${h[1]}${h[1]}${h[2]}${h[2]}`.toLowerCase();
+    }
+    return null;
+}
+
+function rgbaFromRgb(rgb, a) {
+    if (!rgb) return `rgba(0, 74, 153, ${a})`;
+    return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${a})`;
+}
+
+function scheduleThemeVars(primaryHex) {
+    const base = normalizeHexInput(primaryHex) || DEFAULT_SCHED_COLOR;
+    const rgbBase = hexToRgb(base);
+    return {
+        '--sched-primary': base,
+        '--sched-dark': mixHex(base, '#000000', 0.32),
+        '--sched-light': mixHex(base, '#ffffff', 0.28),
+        '--sched-hour-bg': mixHex(base, '#ffffff', 0.9),
+        '--sched-hour-text': mixHex(base, '#000000', 0.35),
+        '--sched-focus-bg': mixHex(base, '#ffffff', 0.72),
+        '--sched-zebra': mixHex(base, '#ffffff', 0.965),
+        '--sched-zebra-hover': mixHex(base, '#ffffff', 0.9),
+        '--sched-merge-border': rgbaFromRgb(rgbBase, 0.18),
+    };
+}
+
+const App = () => {
+    const [headerText, setHeaderText] = useState("PNF ADMINISTRACIÓN\nTRAYECTO II  ·  SECCIÓN 01");
+    const [logoLeft, setLogoLeft] = useState(null);
+    const [logoRight, setLogoRight] = useState(null);
+    const [logoRightTag, setLogoRightTag] = useState('UPTZ');
+    const [editHeader, setEditHeader] = useState(false);
+    const docRef = useRef(null);
+    const [imgBusy, setImgBusy] = useState(false);
+    const [aboutOpen, setAboutOpen] = useState(false);
+    const [scheduleHex, setScheduleHex] = useState(DEFAULT_SCHED_COLOR);
+
+    const docThemeStyle = useMemo(() => scheduleThemeVars(scheduleHex), [scheduleHex]);
+
+    const [docenteRows, setDocenteRows] = useState([
+        { id: 1, codigo: "", unidad: "", aula: "", docente: "" },
+        { id: 2, codigo: "", unidad: "", aula: "", docente: "" },
+        { id: 3, codigo: "", unidad: "", aula: "", docente: "" },
+    ]);
+
+    const [horarioRows, setHorarioRows] = useState([
+        { id: 1, hora: "07:30 – 08:15", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } },
+        { id: 2, hora: "08:15 – 09:00", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } },
+        { id: 3, hora: "09:00 – 09:45", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } },
+        { id: 4, hora: "09:45 – 10:30", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } },
+        { id: 5, hora: "10:30 – 11:15", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } },
+    ]);
+
+    const handleLogo = (e, side) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const r = new FileReader();
+        r.onloadend = () => side === 'left' ? setLogoLeft(r.result) : setLogoRight(r.result);
+        r.readAsDataURL(file);
+    };
+
+    const updDoc = (id, field, value, type) => {
+        if (type === 'd') setDocenteRows(rows => rows.map(r => r.id === id ? { ...r, [field]: value } : r));
+        else setHorarioRows(rows => rows.map(r => (r.id === id ? ensureSpanRow({ ...r, [field]: value }) : r)));
+    };
+
+    const setDaySpan = (rowId, day, spanVal) => {
+        setHorarioRows(rows => {
+            const idx = rows.findIndex(x => x.id === rowId);
+            if (idx === -1) return rows;
+            const normalized = rows.map(ensureSpanRow);
+            const maxS = normalized.length - idx;
+            const s = Math.min(Math.max(parseInt(spanVal, 10) || 1, 1), maxS);
+            return normalized.map((r, i) => {
+                if (i === idx) return { ...r, span: { ...r.span, [day]: s } };
+                if (i > idx && i < idx + s) return { ...r, [day]: '' };
+                return r;
+            });
+        });
+    };
+
+    const addRow = type => {
+        if (type === 'd') setDocenteRows(r => [...r, { id: Date.now(), codigo: "", unidad: "", aula: "", docente: "" }]);
+        else setHorarioRows(r => [...r, { id: Date.now(), hora: "", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } }]);
+    };
+
+    const delRow = (id, type) => {
+        if (type === 'd') setDocenteRows(r => r.filter(x => x.id !== id));
+        else setHorarioRows(rows => {
+            const filtered = rows.filter(x => x.id !== id);
+            return filtered.map((r, i, arr) => {
+                const base = ensureSpanRow(r);
+                const sp = { ...base.span };
+                SCHED_DAYS.forEach(d => {
+                    let s = parseInt(sp[d], 10);
+                    if (Number.isNaN(s) || s < 1) s = 1;
+                    sp[d] = Math.min(s, arr.length - i);
+                });
+                return { ...base, span: sp };
+            });
+        });
+    };
+
+    const downloadAsImage = async () => {
+        const el = docRef.current;
+        if (!el) return;
+        if (typeof html2canvas !== 'function') {
+            alert('No se pudo cargar la librería para generar la imagen. Comprueba tu conexión.');
+            return;
+        }
+        setImgBusy(true);
+        try {
+            const canvas = await html2canvas(el, {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                logging: false,
+                backgroundColor: '#ffffff',
+                onclone: (docClone) => {
+                    docClone.querySelectorAll('.no-print').forEach((n) => {
+                        n.style.setProperty('display', 'none', 'important');
+                    });
+                },
+            });
+            const a = document.createElement('a');
+            a.download = `horario-uptz-${new Date().toISOString().slice(0, 10)}.png`;
+            a.href = canvas.toDataURL('image/png');
+            a.click();
+        } catch (err) {
+            console.error(err);
+            alert('No se pudo generar la imagen.');
+        } finally {
+            setImgBusy(false);
+        }
+    };
+
+    const dayLabels = { lu:'Lunes', ma:'Martes', mi:'Miércoles', ju:'Jueves', vi:'Viernes' };
+
+    return (
+        <div className="app-shell" style={{padding: '2rem 1rem 6rem'}}>
+
+            {/* ── PANEL ── */}
+            <div className="panel no-print">
+                <div className="panel-title">
+                    Panel de Control — Horarios
+                </div>
+
+                <div className="panel-grid">
+                    <div>
+                        <label className="field-label">Texto del encabezado</label>
+                        <textarea className="ctrl"
+                            value={headerText}
+                            onChange={e => setHeaderText(e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <label className="field-label">Logos</label>
+                        <div className="logo-grid">
+                            <div>
+                                <div style={{fontSize:'0.7rem', color:'var(--muted)', marginBottom:'0.35rem', textAlign:'center'}}>Izquierdo</div>
+                                <div className="logo-drop">
+                                    {logoLeft ? <img src={logoLeft} alt="Logo izquierdo" /> : (
+                                        <>
+                                            <span className="logo-placeholder">L</span>
+                                            <span className="logo-drop-hint">Clic para subir imagen</span>
+                                        </>
+                                    )}
+                                    <input type="file" accept="image/*" onChange={e => handleLogo(e, 'left')} />
+                                </div>
+                            </div>
+                            <div>
+                                <div style={{fontSize:'0.7rem', color:'var(--muted)', marginBottom:'0.35rem', textAlign:'center'}}>Derecho</div>
+                                <div className="logo-drop">
+                                    {logoRight ? <img src={logoRight} alt="Logo derecho" /> : (
+                                        <>
+                                            <span className="logo-placeholder">R</span>
+                                            <span className="logo-drop-hint">Clic para subir imagen</span>
+                                        </>
+                                    )}
+                                    <input type="file" accept="image/*" onChange={e => handleLogo(e, 'right')} />
+                                </div>
+                                <label className="field-label" style={{ marginTop: '0.75rem' }}>Texto bajo logo derecho</label>
+                                <input
+                                    type="text"
+                                    className="ctrl logo-tag-input"
+                                    value={logoRightTag}
+                                    onChange={e => setLogoRightTag(e.target.value)}
+                                    maxLength={40}
+                                    placeholder="Ej. UPTZ"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ marginTop: '1.25rem' }}>
+                    <label className="field-label" htmlFor="sched-color-hex">Color del horario</label>
+                    <div className="color-picker-row">
+                        <input
+                            id="sched-color-picker"
+                            type="color"
+                            value={normalizeHexInput(scheduleHex) || DEFAULT_SCHED_COLOR}
+                            onChange={(e) => setScheduleHex(e.target.value)}
+                            aria-label="Selector de color del horario"
+                        />
+                        <input
+                            id="sched-color-hex"
+                            type="text"
+                            className="ctrl hex-input"
+                            value={scheduleHex}
+                            onChange={(e) => setScheduleHex(e.target.value)}
+                            onBlur={() => {
+                                const n = normalizeHexInput(scheduleHex);
+                                setScheduleHex(n || DEFAULT_SCHED_COLOR);
+                            }}
+                            placeholder="#004a99"
+                            maxLength={7}
+                            spellCheck={false}
+                            autoComplete="off"
+                            aria-describedby="sched-color-hint"
+                        />
+                    </div>
+                    <p id="sched-color-hint" style={{ fontSize: '0.68rem', color: 'var(--muted)', marginTop: '0.35rem' }}>
+                        Introduce un color en hexadecimal (por ejemplo <code style={{ color: 'var(--text)' }}>#2e7d32</code>) o usa el selector. Afecta encabezado, tablas y acentos del documento.
+                    </p>
+                </div>
+
+                <div className="btn-row">
+                    <button className="btn btn-ghost" onClick={() => addRow('d')}>+ Fila Docente</button>
+                    <button className="btn btn-ghost" onClick={() => addRow('h')}>+ Fila Horario</button>
+                    <button className="btn btn-accent" onClick={() => window.print()}>
+                        🖨 Imprimir / Guardar PDF
+                    </button>
+                    <button type="button" className="btn btn-primary" disabled={imgBusy} onClick={downloadAsImage}>
+                        {imgBusy ? 'Generando imagen…' : '📷 Descargar como PNG'}
+                    </button>
+                </div>
+            </div>
+
+            {/* ── DOCUMENTO ── */}
+            <div ref={docRef} className="doc-wrap" style={docThemeStyle}>
+
+                {/* Header */}
+                <div className="doc-header">
+                    <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:'2px'}}>
+                        <div className="logo-circle">
+                            {logoLeft ? <img src={logoLeft} alt="Logo izquierdo" /> : <span className="doc-logo-fallback" aria-hidden="true" />}
+                        </div>
+                    </div>
+
+                    <div className="header-center" onDoubleClick={() => setEditHeader(true)}>
+                        {editHeader
+                            ? <textarea
+                                autoFocus
+                                value={headerText}
+                                onChange={e => setHeaderText(e.target.value)}
+                                onBlur={() => setEditHeader(false)}
+                                rows={3}
+                              />
+                            : <h2>{headerText}</h2>
+                        }
+                    </div>
+
+                    <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:'2px'}}>
+                        <div className="logo-square">
+                            {logoRight ? <img src={logoRight} alt="Logo derecho" /> : <span className="doc-logo-fallback" aria-hidden="true" />}
+                        </div>
+                        <div className="logo-tag">{logoRightTag.trim() || '\u00a0'}</div>
+                    </div>
+                </div>
+
+                {/* Body */}
+                <div className="doc-body">
+                    <div className="watermark">
+                        {logoRight
+                            ? <img src={logoRight} />
+                            : <span className="watermark-text">{logoRightTag.trim() || 'UPTZ'}</span>
+                        }
+                    </div>
+
+                    {/* Docentes */}
+                    <div className="gap-section">
+                        <div className="section-title">Unidades Curriculares y Docentes</div>
+                        <table className="doc-table">
+                            <thead>
+                                <tr>
+                                    <th style={{width:'90px'}}>Código</th>
+                                    <th>Unidad Curricular</th>
+                                    <th style={{width:'80px'}}>Aula</th>
+                                    <th>Docente</th>
+                                    <th className="no-print" style={{width:'36px'}}></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {docenteRows.map(row => (
+                                    <tr key={row.id}>
+                                        <td><input value={row.codigo} placeholder="—" onChange={e => updDoc(row.id,'codigo',e.target.value,'d')} /></td>
+                                        <td><input value={row.unidad} placeholder="—" onChange={e => updDoc(row.id,'unidad',e.target.value,'d')} /></td>
+                                        <td><input value={row.aula}   placeholder="—" onChange={e => updDoc(row.id,'aula',e.target.value,'d')} /></td>
+                                        <td><input value={row.docente} placeholder="—" onChange={e => updDoc(row.id,'docente',e.target.value,'d')} /></td>
+                                        <td className="no-print" style={{textAlign:'center'}}>
+                                            <button className="del-btn" onClick={() => delRow(row.id,'d')}>×</button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Horario */}
+                    <div className="gap-section">
+                        <div className="section-title">Distribución Horaria Semanal</div>
+                        <table className="doc-table">
+                            <thead>
+                                <tr>
+                                    <th style={{width:'110px'}}>Hora</th>
+                                    {SCHED_DAYS.map(d => <th key={d}>{dayLabels[d]}</th>)}
+                                    <th className="no-print" style={{width:'36px'}}></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {horarioRows.map((row, rowIdx) => (
+                                    <tr key={row.id}>
+                                        <td className="hora-cell"><input value={row.hora} onChange={e => updDoc(row.id,'hora',e.target.value,'h')} /></td>
+                                        {SCHED_DAYS.flatMap(d => {
+                                            if (coveredFromAbove(horarioRows, rowIdx, d)) return [];
+                                            const rs = effSpan(horarioRows, rowIdx, d);
+                                            const innerTa = Math.max(48, rs * 48);
+                                            const stackMin = innerTa + 34;
+                                            return [(
+                                                <td key={d} {...(rs > 1 ? { rowSpan: rs } : {})} className="ta-merge-cell">
+                                                    <div className="schedule-cell-stack" style={{ minHeight: stackMin }}>
+                                                        <div className="schedule-cell-text-wrap">
+                                                            <textarea
+                                                                value={row[d]}
+                                                                placeholder=""
+                                                                rows={Math.max(1, rs)}
+                                                                onChange={e => updDoc(row.id, d, e.target.value, 'h')}
+                                                            />
+                                                        </div>
+                                                        <div className="merge-bar no-print">
+                                                            <label htmlFor={`sp-${row.id}-${d}`}>Combinar</label>
+                                                            <select
+                                                                id={`sp-${row.id}-${d}`}
+                                                                value={rs}
+                                                                onChange={e => setDaySpan(row.id, d, e.target.value)}
+                                                            >
+                                                                {Array.from({ length: horarioRows.length - rowIdx }, (_, k) => k + 1).map(n => (
+                                                                    <option key={n} value={n}>{n === 1 ? '1 fila' : `${n} filas`}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            )];
+                                        })}
+                                        <td className="no-print" style={{textAlign:'center', verticalAlign:'middle'}}>
+                                            <button className="del-btn" onClick={() => delRow(row.id,'h')}>×</button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div className="doc-footer">
+                    Generado el · {new Date().toLocaleDateString('es-VE', {year:'numeric', month:'long', day:'numeric'})}
+                </div>
+            </div>
+
+            <div className="about-app no-print">
+                <button type="button" className="about-trigger" onClick={() => setAboutOpen(o => !o)}>
+                    {aboutOpen ? 'Cerrar' : 'Acerca de'}
+                </button>
+                {aboutOpen && (
+                    <p className="about-inline">
+                        Desarrollador Raimond Caldera · Codeonyx-Dev ·{' '}
+                        <a href="https://github.com/codeonyx-dev" target="_blank" rel="noopener noreferrer">GitHub</a>
+                    </p>
+                )}
+            </div>
+        </div>
+    );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

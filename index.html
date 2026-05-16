@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generador de Horarios UPTZ</title>
+    <title>Generador de Horarios</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -14,7 +14,7 @@
 <div id="root"></div>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script type="text/babel">
-const { useState, useRef, useMemo } = React;
+const { useState, useRef, useMemo, useEffect } = React;
 
 const SCHED_DAYS = ['lu', 'ma', 'mi', 'ju', 'vi'];
 
@@ -46,6 +46,7 @@ function effSpan(rows, rowIdx, day) {
 }
 
 const DEFAULT_SCHED_COLOR = '#004a99';
+const DEFAULT_SCHED_GRID = '#8aa3be';
 
 function hexToRgb(hex) {
     const h = String(hex).replace(/^#/, '').trim();
@@ -91,9 +92,10 @@ function rgbaFromRgb(rgb, a) {
     return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${a})`;
 }
 
-function scheduleThemeVars(primaryHex) {
+function scheduleDocVars(primaryHex, gridHex) {
     const base = normalizeHexInput(primaryHex) || DEFAULT_SCHED_COLOR;
-    const rgbBase = hexToRgb(base);
+    const grid = normalizeHexInput(gridHex) || DEFAULT_SCHED_GRID;
+    const rgbGrid = hexToRgb(grid);
     return {
         '--sched-primary': base,
         '--sched-dark': mixHex(base, '#000000', 0.32),
@@ -103,36 +105,260 @@ function scheduleThemeVars(primaryHex) {
         '--sched-focus-bg': mixHex(base, '#ffffff', 0.72),
         '--sched-zebra': mixHex(base, '#ffffff', 0.965),
         '--sched-zebra-hover': mixHex(base, '#ffffff', 0.9),
-        '--sched-merge-border': rgbaFromRgb(rgbBase, 0.18),
+        '--sched-grid': grid,
+        '--sched-merge-border': rgbaFromRgb(rgbGrid, 0.4),
+        '--sched-footer-border': mixHex(grid, '#ffffff', 0.42),
     };
 }
 
+const STORAGE_DRAFT_KEY = 'horario-doc-draft-v1';
+const EXPORT_FILE_NAME = 'Horario.json';
+const EXPORT_DOC_FORMAT = 'horario-doc-bundle';
+const EXPORT_DOC_VERSION = 1;
+
+function getDefaultAppData() {
+    return {
+        headerText: "PNF ADMINISTRACIÓN\nTRAYECTO II  ·  SECCIÓN 01",
+        logoLeft: null,
+        logoRight: null,
+        logoRightTag: 'Institución',
+        scheduleHex: DEFAULT_SCHED_COLOR,
+        scheduleGridHex: DEFAULT_SCHED_GRID,
+        docenteRows: [
+            { id: 1, codigo: "", unidad: "", aula: "", docente: "" },
+            { id: 2, codigo: "", unidad: "", aula: "", docente: "" },
+            { id: 3, codigo: "", unidad: "", aula: "", docente: "" },
+        ],
+        horarioRows: [
+            { id: 1, hora: "07:30 – 08:15", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } },
+            { id: 2, hora: "08:15 – 09:00", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } },
+            { id: 3, hora: "09:00 – 09:45", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } },
+            { id: 4, hora: "09:45 – 10:30", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } },
+            { id: 5, hora: "10:30 – 11:15", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } },
+        ],
+    };
+}
+
+function normalizeDocenteRow(r, i) {
+    if (!r || typeof r !== 'object') return { id: i + 1, codigo: '', unidad: '', aula: '', docente: '' };
+    return {
+        id: typeof r.id === 'number' ? r.id : i + 1,
+        codigo: String(r.codigo ?? ''),
+        unidad: String(r.unidad ?? ''),
+        aula: String(r.aula ?? ''),
+        docente: String(r.docente ?? ''),
+    };
+}
+
+function normalizeHorarioRow(r, i) {
+    if (!r || typeof r !== 'object') return null;
+    const row = ensureSpanRow({
+        id: typeof r.id === 'number' ? r.id : i + 1,
+        hora: String(r.hora ?? ''),
+        lu: String(r.lu ?? ''),
+        ma: String(r.ma ?? ''),
+        mi: String(r.mi ?? ''),
+        ju: String(r.ju ?? ''),
+        vi: String(r.vi ?? ''),
+        span: r.span,
+    });
+    return row;
+}
+
+function normalizeAppData(raw) {
+    const def = getDefaultAppData();
+    if (!raw || typeof raw !== 'object') return def;
+    const docenteRows = Array.isArray(raw.docenteRows) && raw.docenteRows.length
+        ? raw.docenteRows.map(normalizeDocenteRow)
+        : def.docenteRows;
+    let horarioRows = Array.isArray(raw.horarioRows) && raw.horarioRows.length
+        ? raw.horarioRows.map((r, i) => normalizeHorarioRow(r, i)).filter(Boolean)
+        : def.horarioRows;
+    const docenteFinal = docenteRows.length ? docenteRows : def.docenteRows;
+    if (!horarioRows.length) horarioRows = def.horarioRows;
+    return {
+        headerText: typeof raw.headerText === 'string' ? raw.headerText : def.headerText,
+        logoLeft: typeof raw.logoLeft === 'string' ? raw.logoLeft : null,
+        logoRight: typeof raw.logoRight === 'string' ? raw.logoRight : null,
+        logoRightTag: typeof raw.logoRightTag === 'string' ? raw.logoRightTag : def.logoRightTag,
+        scheduleHex: normalizeHexInput(raw.scheduleHex) || def.scheduleHex,
+        scheduleGridHex: normalizeHexInput(raw.scheduleGridHex) || def.scheduleGridHex,
+        docenteRows: docenteFinal,
+        horarioRows,
+    };
+}
+
+function loadDraftData() {
+    try {
+        const raw = localStorage.getItem(STORAGE_DRAFT_KEY);
+        if (!raw) return null;
+        const o = JSON.parse(raw);
+        if (!o || o.v !== 1 || !o.data) return null;
+        return normalizeAppData(o.data);
+    } catch {
+        return null;
+    }
+}
+
+function parseHorarioDocFile(text) {
+    const o = JSON.parse(text);
+    if (!o || typeof o !== 'object') throw new Error('INVALID');
+    if (o.format === EXPORT_DOC_FORMAT && o.data && typeof o.data === 'object') {
+        return normalizeAppData(o.data);
+    }
+    if (typeof o.headerText === 'string' || Array.isArray(o.docenteRows) || Array.isArray(o.horarioRows)) {
+        return normalizeAppData(o);
+    }
+    throw new Error('INVALID');
+}
+
+function buildExportBundle(data) {
+    return {
+        format: EXPORT_DOC_FORMAT,
+        version: EXPORT_DOC_VERSION,
+        exportedAt: new Date().toISOString(),
+        data: JSON.parse(JSON.stringify(data)),
+    };
+}
+
+function triggerDownloadExportJson(jsonString) {
+    const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = EXPORT_FILE_NAME;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+
+async function trySaveExportWithPicker(jsonString) {
+    if (typeof window.showSaveFilePicker !== 'function') return false;
+    try {
+        const handle = await window.showSaveFilePicker({
+            suggestedName: EXPORT_FILE_NAME,
+            types: [
+                {
+                    description: 'Documento JSON',
+                    accept: { 'application/json': ['.json'] },
+                },
+            ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(new Blob([jsonString], { type: 'application/json;charset=utf-8' }));
+        await writable.close();
+        return true;
+    } catch (e) {
+        if (e && e.name === 'AbortError') return null;
+        console.warn(e);
+        return false;
+    }
+}
+
 const App = () => {
-    const [headerText, setHeaderText] = useState("PNF ADMINISTRACIÓN\nTRAYECTO II  ·  SECCIÓN 01");
-    const [logoLeft, setLogoLeft] = useState(null);
-    const [logoRight, setLogoRight] = useState(null);
-    const [logoRightTag, setLogoRightTag] = useState('UPTZ');
+    const initial = useMemo(() => normalizeAppData(loadDraftData() || getDefaultAppData()), []);
+
+    const [headerText, setHeaderText] = useState(initial.headerText);
+    const [logoLeft, setLogoLeft] = useState(initial.logoLeft);
+    const [logoRight, setLogoRight] = useState(initial.logoRight);
+    const [logoRightTag, setLogoRightTag] = useState(initial.logoRightTag);
     const [editHeader, setEditHeader] = useState(false);
     const docRef = useRef(null);
+    const importFileRef = useRef(null);
     const [imgBusy, setImgBusy] = useState(false);
     const [aboutOpen, setAboutOpen] = useState(false);
-    const [scheduleHex, setScheduleHex] = useState(DEFAULT_SCHED_COLOR);
+    const [scheduleHex, setScheduleHex] = useState(initial.scheduleHex);
+    const [scheduleGridHex, setScheduleGridHex] = useState(initial.scheduleGridHex);
 
-    const docThemeStyle = useMemo(() => scheduleThemeVars(scheduleHex), [scheduleHex]);
+    const docThemeStyle = useMemo(
+        () => scheduleDocVars(scheduleHex, scheduleGridHex),
+        [scheduleHex, scheduleGridHex],
+    );
 
-    const [docenteRows, setDocenteRows] = useState([
-        { id: 1, codigo: "", unidad: "", aula: "", docente: "" },
-        { id: 2, codigo: "", unidad: "", aula: "", docente: "" },
-        { id: 3, codigo: "", unidad: "", aula: "", docente: "" },
-    ]);
+    const [docenteRows, setDocenteRows] = useState(initial.docenteRows);
+    const [horarioRows, setHorarioRows] = useState(initial.horarioRows);
 
-    const [horarioRows, setHorarioRows] = useState([
-        { id: 1, hora: "07:30 – 08:15", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } },
-        { id: 2, hora: "08:15 – 09:00", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } },
-        { id: 3, hora: "09:00 – 09:45", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } },
-        { id: 4, hora: "09:45 – 10:30", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } },
-        { id: 5, hora: "10:30 – 11:15", lu: "", ma: "", mi: "", ju: "", vi: "", span: { ...defaultSpan() } },
-    ]);
+    const draftPayload = useMemo(
+        () => ({
+            headerText,
+            logoLeft,
+            logoRight,
+            logoRightTag,
+            scheduleHex,
+            scheduleGridHex,
+            docenteRows,
+            horarioRows,
+        }),
+        [headerText, logoLeft, logoRight, logoRightTag, scheduleHex, scheduleGridHex, docenteRows, horarioRows],
+    );
+
+    useEffect(() => {
+        const t = setTimeout(() => {
+            try {
+                localStorage.setItem(
+                    STORAGE_DRAFT_KEY,
+                    JSON.stringify({ v: 1, savedAt: Date.now(), data: draftPayload }),
+                );
+            } catch (e) {
+                console.warn('Borrador: almacenamiento lleno o no disponible', e);
+            }
+        }, 1400);
+        return () => clearTimeout(t);
+    }, [draftPayload]);
+
+    const applyAppData = (data) => {
+        const d = normalizeAppData(data);
+        setHeaderText(d.headerText);
+        setLogoLeft(d.logoLeft);
+        setLogoRight(d.logoRight);
+        setLogoRightTag(d.logoRightTag);
+        setScheduleHex(d.scheduleHex);
+        setScheduleGridHex(d.scheduleGridHex);
+        setDocenteRows(d.docenteRows);
+        setHorarioRows(d.horarioRows);
+        setEditHeader(false);
+    };
+
+    const clearEntireHorario = () => {
+        if (!window.confirm('¿Limpiar todo el horario y volver a la plantilla inicial? Se restablecerán encabezado, logos, colores y tablas de docentes y de horas.')) return;
+        applyAppData(getDefaultAppData());
+    };
+
+    const exportHorarioJson = async () => {
+        const bundle = buildExportBundle(draftPayload);
+        const jsonString = JSON.stringify(bundle, null, 2);
+        try {
+            const picked = await trySaveExportWithPicker(jsonString);
+            if (picked === true || picked === null) return;
+        } catch (e) {
+            console.warn(e);
+        }
+        triggerDownloadExportJson(jsonString);
+    };
+
+    const onPickImportFile = () => {
+        importFileRef.current?.click();
+    };
+
+    const onImportFileChange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = '';
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                const data = parseHorarioDocFile(String(reader.result));
+                if (!window.confirm('¿Importar este archivo? Se reemplazará el contenido actual del horario.')) return;
+                applyAppData(data);
+            } catch (err) {
+                console.error(err);
+                alert('No se pudo leer el archivo. Usa un Horario.json exportado desde esta app o un JSON con los mismos campos del documento.');
+            }
+        };
+        reader.readAsText(file, 'UTF-8');
+    };
 
     const handleLogo = (e, side) => {
         const file = e.target.files[0];
@@ -206,7 +432,7 @@ const App = () => {
                 },
             });
             const a = document.createElement('a');
-            a.download = `horario-uptz-${new Date().toISOString().slice(0, 10)}.png`;
+            a.download = `horario-${new Date().toISOString().slice(0, 10)}.png`;
             a.href = canvas.toDataURL('image/png');
             a.click();
         } catch (err) {
@@ -269,54 +495,126 @@ const App = () => {
                                     value={logoRightTag}
                                     onChange={e => setLogoRightTag(e.target.value)}
                                     maxLength={40}
-                                    placeholder="Ej. UPTZ"
+                                    placeholder="Ej. siglas o nombre corto"
                                 />
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div style={{ marginTop: '1.25rem' }}>
-                    <label className="field-label" htmlFor="sched-color-hex">Color del horario</label>
-                    <div className="color-picker-row">
-                        <input
-                            id="sched-color-picker"
-                            type="color"
-                            value={normalizeHexInput(scheduleHex) || DEFAULT_SCHED_COLOR}
-                            onChange={(e) => setScheduleHex(e.target.value)}
-                            aria-label="Selector de color del horario"
-                        />
-                        <input
-                            id="sched-color-hex"
-                            type="text"
-                            className="ctrl hex-input"
-                            value={scheduleHex}
-                            onChange={(e) => setScheduleHex(e.target.value)}
-                            onBlur={() => {
-                                const n = normalizeHexInput(scheduleHex);
-                                setScheduleHex(n || DEFAULT_SCHED_COLOR);
-                            }}
-                            placeholder="#004a99"
-                            maxLength={7}
-                            spellCheck={false}
-                            autoComplete="off"
-                            aria-describedby="sched-color-hint"
-                        />
-                    </div>
-                    <p id="sched-color-hint" style={{ fontSize: '0.68rem', color: 'var(--muted)', marginTop: '0.35rem' }}>
-                        Introduce un color en hexadecimal (por ejemplo <code style={{ color: 'var(--text)' }}>#2e7d32</code>) o usa el selector. Afecta encabezado, tablas y acentos del documento.
-                    </p>
-                </div>
+                <div className="panel-stack">
+                    <section className="panel-section" aria-labelledby="section-colors-title">
+                        <h2 className="panel-section-title" id="section-colors-title">Colores</h2>
+                        <div className="panel-colors-grid">
+                            <div className="color-field">
+                                <label className="field-label" htmlFor="sched-color-hex">Tema del documento</label>
+                                <div className="color-picker-row">
+                                    <input
+                                        id="sched-color-picker"
+                                        type="color"
+                                        value={normalizeHexInput(scheduleHex) || DEFAULT_SCHED_COLOR}
+                                        onChange={(e) => setScheduleHex(e.target.value)}
+                                        aria-label="Selector de color del tema"
+                                    />
+                                    <input
+                                        id="sched-color-hex"
+                                        type="text"
+                                        className="ctrl hex-input"
+                                        value={scheduleHex}
+                                        onChange={(e) => setScheduleHex(e.target.value)}
+                                        onBlur={() => {
+                                            const n = normalizeHexInput(scheduleHex);
+                                            setScheduleHex(n || DEFAULT_SCHED_COLOR);
+                                        }}
+                                        placeholder="#004a99"
+                                        maxLength={7}
+                                        spellCheck={false}
+                                        autoComplete="off"
+                                        aria-describedby="sched-color-hint"
+                                    />
+                                </div>
+                                <p id="sched-color-hint" className="field-hint">
+                                    Hex o selector: cabecera del documento, franja de horas y acentos.
+                                </p>
+                            </div>
+                            <div className="color-field">
+                                <label className="field-label" htmlFor="sched-grid-hex">Líneas de tabla</label>
+                                <div className="color-picker-row">
+                                    <input
+                                        id="sched-grid-picker"
+                                        type="color"
+                                        value={normalizeHexInput(scheduleGridHex) || DEFAULT_SCHED_GRID}
+                                        onChange={(e) => setScheduleGridHex(e.target.value)}
+                                        aria-label="Selector de color de líneas"
+                                    />
+                                    <input
+                                        id="sched-grid-hex"
+                                        type="text"
+                                        className="ctrl hex-input"
+                                        value={scheduleGridHex}
+                                        onChange={(e) => setScheduleGridHex(e.target.value)}
+                                        onBlur={() => {
+                                            const n = normalizeHexInput(scheduleGridHex);
+                                            setScheduleGridHex(n || DEFAULT_SCHED_GRID);
+                                        }}
+                                        placeholder="#8aa3be"
+                                        maxLength={7}
+                                        spellCheck={false}
+                                        autoComplete="off"
+                                        aria-describedby="sched-grid-hint"
+                                    />
+                                </div>
+                                <p id="sched-grid-hint" className="field-hint">
+                                    Bordes de celdas, encabezados de columna, barra Combinar y pie.
+                                </p>
+                            </div>
+                        </div>
+                    </section>
 
-                <div className="btn-row">
-                    <button className="btn btn-ghost" onClick={() => addRow('d')}>+ Fila Docente</button>
-                    <button className="btn btn-ghost" onClick={() => addRow('h')}>+ Fila Horario</button>
-                    <button className="btn btn-accent" onClick={() => window.print()}>
-                        🖨 Imprimir / Guardar PDF
-                    </button>
-                    <button type="button" className="btn btn-primary" disabled={imgBusy} onClick={downloadAsImage}>
-                        {imgBusy ? 'Generando imagen…' : '📷 Descargar como PNG'}
-                    </button>
+                    <section className="panel-section" aria-labelledby="section-actions-title">
+                        <h2 className="panel-section-title" id="section-actions-title">Tabla y archivos</h2>
+                        <div className="panel-actions-grid">
+                            <button type="button" className="btn btn-ghost" onClick={() => addRow('d')}>+ Fila docente</button>
+                            <button type="button" className="btn btn-ghost" onClick={() => addRow('h')}>+ Fila horario</button>
+                            <button type="button" className="btn btn-accent" onClick={() => window.print()}>
+                                🖨 Imprimir / PDF
+                            </button>
+                            <button type="button" className="btn btn-primary" disabled={imgBusy} onClick={downloadAsImage}>
+                                {imgBusy ? 'Generando…' : '📷 Descargar PNG'}
+                            </button>
+                        </div>
+                        <p className="field-hint field-hint--tight">Añade filas al documento o expórtalo. El borrador se guarda solo en este navegador.</p>
+                    </section>
+
+                    <section className="panel-section" aria-labelledby="section-backup-title">
+                        <h2 className="panel-section-title" id="section-backup-title">Respaldo JSON</h2>
+                        <p className="field-hint field-hint--tight">
+                            Archivo <strong className="backup-strong">Horario.json</strong>: copia de seguridad o para abrir en otro equipo.
+                        </p>
+                        <div className="panel-backup-buttons">
+                            <button type="button" className="btn btn-ghost" onClick={exportHorarioJson}>
+                                Exportar
+                            </button>
+                            <button type="button" className="btn btn-ghost" onClick={onPickImportFile} aria-label="Importar archivo Horario.json">
+                                Importar
+                            </button>
+                            <input
+                                ref={importFileRef}
+                                type="file"
+                                accept=".json,application/json"
+                                className="sr-only"
+                                tabIndex={-1}
+                                aria-hidden="true"
+                                onChange={onImportFileChange}
+                            />
+                            <button type="button" className="btn btn-ghost btn-danger-outline" onClick={clearEntireHorario}>
+                                Limpiar todo
+                            </button>
+                        </div>
+                        <p className="field-hint field-hint--small">
+                            En Chrome o Edge (HTTPS o localhost), «Exportar» puede abrir «Guardar como» y elegir la carpeta del proyecto. Si no, se descarga el archivo.
+                        </p>
+                    </section>
                 </div>
             </div>
 
@@ -357,7 +655,7 @@ const App = () => {
                     <div className="watermark">
                         {logoRight
                             ? <img src={logoRight} />
-                            : <span className="watermark-text">{logoRightTag.trim() || 'UPTZ'}</span>
+                            : <span className="watermark-text">{logoRightTag.trim() || 'Horario'}</span>
                         }
                     </div>
 

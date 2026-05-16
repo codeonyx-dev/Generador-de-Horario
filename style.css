@@ -119,7 +119,108 @@ input.logo-tag-input.ctrl:focus {
 .logo-placeholder { font-family: 'Syne', sans-serif; font-size: 2rem; font-weight: 800; color: rgba(255,255,255,0.12); line-height: 1; }
 .logo-drop-hint { font-size: 0.62rem; color: rgba(255,255,255,0.28); font-weight: 500; letter-spacing: 0.05em; margin-top: 0.4rem; text-align: center; padding: 0 0.5rem; line-height: 1.25; }
 
-.btn-row { display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: center; margin-top: 1.5rem; }
+.panel-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.panel-section {
+    padding: 1.15rem 1.25rem 1.2rem;
+    background: rgba(0, 0, 0, 0.14);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+}
+
+.panel-section-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 0.95rem;
+    line-height: 1.3;
+}
+
+.panel-colors-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem 1.5rem;
+    align-items: start;
+}
+
+@media (max-width: 720px) {
+    .panel-colors-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.color-field .field-label {
+    margin-bottom: 0.45rem;
+}
+
+.field-hint {
+    font-size: 0.68rem;
+    color: var(--muted);
+    line-height: 1.45;
+    margin: 0.4rem 0 0;
+    max-width: 42ch;
+}
+
+.field-hint code {
+    color: var(--text);
+    font-size: 0.95em;
+}
+
+.field-hint--tight {
+    margin-top: 0.75rem;
+    max-width: none;
+}
+
+.field-hint--small {
+    font-size: 0.62rem;
+    margin: 0.65rem 0 0;
+    max-width: 56ch;
+    opacity: 0.95;
+}
+
+.panel-actions-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.65rem;
+}
+
+.panel-actions-grid .btn {
+    width: 100%;
+    min-height: 2.65rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    line-height: 1.25;
+    padding-left: 0.65rem;
+    padding-right: 0.65rem;
+}
+
+.panel-backup-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    margin-top: 0.65rem;
+}
+
+.panel-backup-buttons .btn {
+    flex: 1 1 7.5rem;
+    min-height: 2.5rem;
+    justify-content: center;
+}
+
+.backup-strong {
+    color: var(--text);
+    font-weight: 700;
+}
 
 .btn {
     padding: 0.55rem 1.2rem;
@@ -138,6 +239,28 @@ input.logo-tag-input.ctrl:focus {
 .btn-accent { background: var(--accent); color: #1a0d00; font-weight: 700; }
 .btn-accent:hover { background: #ffb52b; }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.btn-danger-outline {
+    border-color: rgba(220, 100, 100, 0.35);
+    color: #e8a0a0;
+}
+.btn-danger-outline:hover {
+    background: rgba(180, 40, 40, 0.2);
+    color: #fff;
+    border-color: rgba(255, 120, 120, 0.45);
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
 
 .color-picker-row {
     display: flex;
@@ -173,7 +296,9 @@ input.logo-tag-input.ctrl:focus {
     --sched-focus-bg: #dbeeff;
     --sched-zebra: rgba(245, 248, 252, 0.45);
     --sched-zebra-hover: rgba(232, 240, 251, 0.55);
-    --sched-merge-border: rgba(0, 74, 153, 0.18);
+    --sched-merge-border: rgba(138, 163, 190, 0.4);
+    --sched-grid: #8aa3be;
+    --sched-footer-border: #c5d2e0;
     max-width: 960px;
     margin: 0 auto;
     background: #fff;
@@ -346,11 +471,11 @@ table.doc-table th {
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    border: 1px solid rgba(255,255,255,0.1);
+    border: 2px solid var(--sched-grid);
     text-align: center;
 }
 table.doc-table td {
-    border: 1px solid #c8d8e8;
+    border: 2px solid var(--sched-grid);
     padding: 0;
     text-align: center;
     vertical-align: middle;
@@ -441,7 +566,7 @@ table.doc-table .schedule-cell-text-wrap textarea {
     flex-wrap: wrap;
     gap: 0.25rem 0.45rem;
     padding: 0.25rem 0.35rem 0.35rem;
-    border-top: 1px solid var(--sched-merge-border);
+    border-top: 2px solid var(--sched-merge-border);
     background: rgba(255, 255, 255, 0.55);
 }
 .merge-bar label { font-size: 0.62rem; color: #5a6f88; font-weight: 600; }
@@ -450,7 +575,7 @@ table.doc-table .schedule-cell-text-wrap textarea {
     font-family: 'DM Sans', sans-serif;
     padding: 0.15rem 0.4rem;
     border-radius: 4px;
-    border: 1px solid #c8d8e8;
+    border: 2px solid var(--sched-grid);
     background: #fff;
     color: #1a1a2e;
     cursor: pointer;
@@ -459,7 +584,7 @@ table.doc-table .schedule-cell-text-wrap textarea {
 /* Footer */
 .doc-footer {
     background: #f5f8fc;
-    border-top: 1px solid #d0dde8;
+    border-top: 2px solid var(--sched-footer-border);
     padding: 0.6rem 1.5rem;
     text-align: center;
     font-size: 0.72rem;

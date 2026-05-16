@@ -1,8 +1,8 @@
-# Generador de Horarios UPTZ
+# Generador de Horarios
 
 Herramienta web para crear horarios académicos con encabezado personalizable, tablas de docentes y distribución semanal.
 
-![Captura del generador](screenshot.png)
+![alt text](image.png)
 
 ## Instrucciones
 
@@ -18,6 +18,7 @@ Mantén **`style.css`** en la misma carpeta que el HTML.
 - **Impresión y PDF**: usa el botón de imprimir del navegador para guardar como PDF (recuerda activar los gráficos de fondo si los colores no se ven igual que en pantalla).
 - **Logos**: sube imágenes para los logos izquierdo y derecho y edita el texto bajo el logo derecho.
 - **Combinación de celdas**: en el horario semanal, combina filas por día con el selector «Combinar».
+- **Respaldo JSON**: exporta o importa `Horario.json` desde el panel (borrador automático en el navegador aparte).
 
 ## Estructura del proyecto
 
@@ -25,6 +26,7 @@ Mantén **`style.css`** en la misma carpeta que el HTML.
 |-----------------|----------------------------------------------------------------|
 | `index.html`    | HTML, dependencias CDN y lógica React (JSX con Babel inline)   |
 | `horarios.html` | Redirección a `index.html`                                     |
+| `Horario.json`  | Ejemplo de respaldo JSON (opcional; puedes sobrescribirlo al exportar) |
 | `style.css`     | Estilos e impresión                                            |
 
 ## Dependencias y modo sin conexión
